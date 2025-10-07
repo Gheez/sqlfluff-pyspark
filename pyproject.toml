@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqlfluff-pyspark-templater"
+version = "0.1.0"
+description = "SQLFluff templater for PySpark f-string SQL blocks"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pyspark>=4.0.1",
+    "sqlfluff>=3.4.2",
+]
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+]
+
+[project.scripts]
+sqlfluff-pyspark = "sqlfluff_pyspark_templater.cli:main"
+
+[project.entry-points."sqlfluff"]
+pyspark = "sqlfluff_pyspark_templater"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sqlfluff_pyspark_templater*"]
