@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqlfluff-pyspark"
+version = "0.1.0"
+description = "A wrapper library for sqlfluff that analyzes SQL files in temp directories"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlfluff==4.0.*",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+]
+
+[project.scripts]
+sqlfluff-pyspark = "sqlfluff_pyspark.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--verbose",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+]
