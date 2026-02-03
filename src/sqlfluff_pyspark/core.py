@@ -6,7 +6,7 @@ import logging
 import tempfile
 from pathlib import Path
 from typing import List, Dict, Any
-from sqlfluff import lint, parse, fix
+from sqlfluff import parse, fix
 from sqlfluff.core import FluffConfig
 
 # Configure logging
@@ -86,16 +86,11 @@ def analyze_temp_directory(
             # Parse the SQL file
             parsed = parse(sql_content, config=sqlfluff_config)
 
-            # Lint the SQL file (after fixing if applicable)
-            # Returns List[Dict[str, Any]] - structured information as dictionaries
-            lint_result = lint(sql_content, config=sqlfluff_config)
-
             results.append(
                 {
                     "file": sql_file.name,
                     "path": str(sql_file),
                     "parsed": parsed,
-                    "violations": lint_result,
                     "fixed": fixed_sql is not None and fixed_sql != original_sql
                     if fix_sql
                     else False,
@@ -104,36 +99,7 @@ def analyze_temp_directory(
                 }
             )
 
-            if lint_result:
-                logger.warning(f"Found {len(lint_result)} violation(s) in {sql_file}")
-                for violation in lint_result:
-                    # lint_result returns structured dictionaries with keys:
-                    # - "code": rule code (e.g., "CP01")
-                    # - "line_no": line number (sqlfluff < 4.0)
-                    # - "start_line_no"/"end_line_no": line numbers (sqlfluff >= 4.0)
-                    # - "line_pos": position on the line (sqlfluff < 4.0)
-                    # - "start_line_pos"/"end_line_pos": positions (sqlfluff >= 4.0)
-                    # - "description": description of the violation
-                    line_no = (
-                        violation.get("line_no")
-                        or violation.get("start_line_no")
-                        or violation.get("end_line_no")
-                        or "?"
-                    )
-                    line_pos = (
-                        violation.get("line_pos")
-                        or violation.get("start_line_pos")
-                        or violation.get("end_line_pos")
-                        or "?"
-                    )
-                    code = violation.get("code", "UNKNOWN")
-                    description = violation.get("description", "No description")
-
-                    logger.error(
-                        f"Error at {sql_file}:{line_no}:{line_pos} - {code}: {description}"
-                    )
-            else:
-                logger.info(f"No violations found in {sql_file.name}")
+            logger.info(f"Processed {sql_file.name}")
 
         except Exception as e:
             logger.error(f"Error analyzing {sql_file}: {e}", exc_info=True)
@@ -142,33 +108,6 @@ def analyze_temp_directory(
             )
 
     return results
-
-
-def lint_sql(sql: str, config_path: str) -> List[Dict[str, Any]]:
-    """
-    Lint a SQL string using sqlfluff.
-
-    Args:
-        sql: SQL string to lint
-        config_path: Path to an existing .sqlfluff config file
-
-    Returns:
-        List of violation dictionaries
-
-    Raises:
-        FileNotFoundError: If the config file does not exist
-        ValueError: If the config file cannot be loaded
-    """
-    config_file = Path(config_path)
-    if not config_file.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
-
-    try:
-        sqlfluff_config = FluffConfig.from_path(config_path)
-    except Exception as e:
-        raise ValueError(f"Failed to load configuration from {config_path}: {e}") from e
-
-    return lint(sql, config=sqlfluff_config)
 
 
 def parse_sql(sql: str, config_path: str) -> Dict[str, Any]:

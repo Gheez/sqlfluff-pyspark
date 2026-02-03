@@ -1,6 +1,6 @@
 # SQLFluff PySpark
 
-A wrapper library for sqlfluff that analyzes SQL files in temp directories. This library provides a programmatic interface to sqlfluff's linting, parsing, and fixing capabilities.
+A wrapper library for sqlfluff that analyzes SQL files in temp directories. This library provides a programmatic interface to sqlfluff's parsing and fixing capabilities.
 
 ## Installation
 
@@ -20,18 +20,12 @@ pip install .
 Import and use the wrapped sqlfluff commands:
 
 ```python
-from sqlfluff_pyspark import analyze_temp_directory, lint_sql, parse_sql, fix_sql
+from sqlfluff_pyspark import analyze_temp_directory, parse_sql, fix_sql
 
 # Analyze SQL files in a temp directory
 results = analyze_temp_directory(
     config_path="/path/to/.sqlfluff",
     fix_sql=False  # Set to True to apply fixes
-)
-
-# Lint a SQL string
-violations = lint_sql(
-    sql="SELECT * FROM table",
-    config_path="/path/to/.sqlfluff"
 )
 
 # Parse a SQL string
@@ -93,21 +87,9 @@ List of dictionaries containing analysis results for each SQL file, including:
 - `file`: Filename
 - `path`: Full path to the file
 - `parsed`: Parsed SQL structure
-- `violations`: List of lint violations
 - `fixed`: Boolean indicating if the file was fixed
 - `original_content`: Original SQL content
 - `fixed_content`: Fixed SQL content (if fixing was enabled)
-
-### `lint_sql(sql: str, config_path: str) -> List[Dict[str, Any]]`
-
-Lint a SQL string and return violations.
-
-**Parameters:**
-- `sql`: SQL string to lint
-- `config_path`: Path to an existing .sqlfluff config file
-
-**Returns:**
-List of violation dictionaries with keys: `code`, `line_no`, `line_pos`, `description`
 
 ### `parse_sql(sql: str, config_path: str) -> Dict[str, Any]`
 

@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 from sqlfluff_pyspark.core import (
     analyze_temp_directory,
-    lint_sql,
     parse_sql,
     fix_sql,
 )
@@ -41,7 +40,7 @@ class TestAnalyzeTempDirectory:
             # Mock the temp directory creation - we'll test the actual function
             # by creating files in a known location, but the function uses mkdtemp()
             # so we can't directly test it this way. Instead, we'll test the core
-            # functionality through lint_sql, parse_sql, and fix_sql
+            # functionality through parse_sql and fix_sql
             pass
         finally:
             shutil.rmtree(test_temp_dir, ignore_errors=True)
@@ -53,68 +52,6 @@ class TestAnalyzeTempDirectory:
         # there are SQL files in the temp directory it creates.
         results = analyze_temp_directory(config_path=sqlfluff_config_file, fix_sql=True)
         assert isinstance(results, list)
-
-
-class TestLintSQL:
-    """Tests for lint_sql function."""
-
-    def test_config_file_not_found(self):
-        """Test that FileNotFoundError is raised when config file doesn't exist."""
-        with pytest.raises(FileNotFoundError, match="Configuration file not found"):
-            lint_sql("SELECT 1", "/nonexistent/path/.sqlfluff")
-
-    def test_lint_valid_sql(self, sqlfluff_config_file, sample_sql):
-        """Test linting valid SQL."""
-        violations = lint_sql(sample_sql, sqlfluff_config_file)
-        assert isinstance(violations, list)
-        # Valid SQL should have few or no violations depending on config
-
-    def test_lint_invalid_sql(self, sqlfluff_config_file, invalid_sql):
-        """Test linting invalid SQL."""
-        violations = lint_sql(invalid_sql, sqlfluff_config_file)
-        assert isinstance(violations, list)
-        # Invalid SQL should have violations
-        assert len(violations) > 0
-        # Check structure of violations
-        if violations:
-            violation = violations[0]
-            assert "code" in violation
-            # sqlfluff 4.0+ uses start_line_no/end_line_no instead of line_no
-            assert (
-                "start_line_no" in violation
-                or "end_line_no" in violation
-                or "line_no" in violation
-            )
-            assert "description" in violation
-
-    def test_lint_empty_sql(self, sqlfluff_config_file):
-        """Test linting empty SQL."""
-        violations = lint_sql("", sqlfluff_config_file)
-        assert isinstance(violations, list)
-
-    def test_lint_result_structure(self, sqlfluff_config_file, invalid_sql):
-        """Test that lint results have the expected structure."""
-        violations = lint_sql(invalid_sql, sqlfluff_config_file)
-        if violations:
-            violation = violations[0]
-            # Check required keys
-            assert "code" in violation
-            # sqlfluff 4.0+ uses start_line_no/end_line_no instead of line_no
-            line_no_key = None
-            if "line_no" in violation:
-                line_no_key = "line_no"
-            elif "start_line_no" in violation:
-                line_no_key = "start_line_no"
-            elif "end_line_no" in violation:
-                line_no_key = "end_line_no"
-            assert line_no_key is not None, (
-                f"Expected line_no, start_line_no, or end_line_no in violation: {violation.keys()}"
-            )
-            assert "description" in violation
-            # Check types
-            assert isinstance(violation["code"], str)
-            assert isinstance(violation[line_no_key], int)
-            assert isinstance(violation["description"], str)
 
 
 class TestParseSQL:
@@ -189,4 +126,4 @@ class TestErrorHandling:
 
         # The function should raise ValueError when config can't be loaded
         with pytest.raises(ValueError, match="Failed to load configuration"):
-            lint_sql("SELECT 1", str(invalid_config))
+            fix_sql("SELECT 1", str(invalid_config))

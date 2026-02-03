@@ -43,7 +43,6 @@ class TestCLI:
                 "file": "test.sql",
                 "path": "/tmp/test.sql",
                 "parsed": {},
-                "violations": [],
                 "fixed": False,
             }
         ]
@@ -61,7 +60,6 @@ class TestCLI:
                 "file": "test.sql",
                 "path": "/tmp/test.sql",
                 "parsed": {},
-                "violations": [],
                 "fixed": True,
             }
         ]
