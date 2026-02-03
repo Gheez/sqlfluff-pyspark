@@ -196,3 +196,123 @@ class TestReformatSQLInPythonFile:
             modified_content = python_file.read_text()
             # The reformatted SQL should have proper case
             assert "SELECT" in modified_content or "select" in modified_content.lower()
+
+    def test_end_line_not_duplicated_when_fixing(self, sqlfluff_config_file, tmp_path):
+        """Test that the line at the end of a Python string is not duplicated when fixing."""
+        python_file = tmp_path / "test.py"
+        # Create a multiline SQL string that ends at the end of a line
+        # The SQL string ends with a line that should not be duplicated
+        original_content = '''def get_data():
+    result = spark.sql("""
+    SELECT id, name
+    FROM users
+    WHERE active = 1
+    """)
+    return result
+'''
+        python_file.write_text(original_content)
+
+        # Count the number of lines before fixing
+        original_lines = original_content.splitlines(keepends=True)
+        original_line_count = len(original_lines)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        # Read the modified content
+        modified_content = python_file.read_text()
+        modified_lines = modified_content.splitlines(keepends=True)
+        modified_line_count = len(modified_lines)
+
+        # Check that the end line is not duplicated
+        # The line count should be the same or less (if SQL was reformatted to fewer lines)
+        # but should not be more due to duplication
+        assert modified_line_count <= original_line_count + 2, (
+            f"Line count increased unexpectedly. "
+            f"Original: {original_line_count}, Modified: {modified_line_count}. "
+            f"This suggests the end line was duplicated."
+        )
+
+        # Specifically check that the line after the closing triple quotes is not duplicated
+        # Find the closing triple quotes and check what comes after
+        lines_list = modified_content.splitlines(keepends=True)
+        for i, line in enumerate(lines_list):
+            if '"""' in line and i > 0:
+                # Check if this is the closing quote line
+                # The next line should be the return statement, not a duplicate
+                if i + 1 < len(lines_list):
+                    next_line = lines_list[i + 1]
+                    # If the next line is the same as the current line (excluding quotes), it's duplicated
+                    if next_line.strip() == line.strip() and '"""' not in next_line:
+                        pytest.fail(
+                            f"End line appears to be duplicated. "
+                            f"Line {i}: {repr(line)}, Line {i + 1}: {repr(next_line)}"
+                        )
+
+        # Also verify the structure is correct - should have return statement after the SQL
+        assert "return result" in modified_content, (
+            "Return statement should be present after SQL string"
+        )
+
+    def test_end_line_content_preserved(self, sqlfluff_config_file, tmp_path):
+        """Test that content at the end of a multiline SQL string is preserved correctly."""
+        python_file = tmp_path / "test.py"
+        # Create a multiline SQL string where the last line has specific content
+        original_content = '''def get_data():
+    result = spark.sql("""
+    SELECT id, name
+    FROM users
+    WHERE active = 1
+    """)
+    return result
+'''
+        python_file.write_text(original_content)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        modified_content_lines = modified_content.splitlines(keepends=True)
+
+        # Find the line with the closing triple quotes
+        closing_quote_line_idx = None
+        for i, line in enumerate(modified_content_lines):
+            if '"""' in line and i > 2:  # Should be after the opening quotes
+                closing_quote_line_idx = i
+                break
+
+        if closing_quote_line_idx is not None:
+            # Check that the line after closing quotes is correct (should be return statement)
+            if closing_quote_line_idx + 1 < len(modified_content_lines):
+                line_after_closing = modified_content_lines[closing_quote_line_idx + 1]
+                # The line after closing quotes should be the return statement
+                # It should NOT be a duplicate of the closing quote line
+                assert "return" in line_after_closing, (
+                    f"Line after closing quotes should contain 'return', "
+                    f"but got: {repr(line_after_closing)}. "
+                    f"This suggests the end line was duplicated or content was lost."
+                )
+
+        # Verify the structure: should have exactly one return statement
+        return_count = modified_content.count("return result")
+        assert return_count == 1, (
+            f"Expected exactly one 'return result' statement, but found {return_count}. "
+            f"This suggests duplication occurred."
+        )
+
+        # Verify that the closing quote line doesn't appear twice consecutively
+        for i in range(len(modified_content_lines) - 1):
+            current_line = modified_content_lines[i]
+            next_line = modified_content_lines[i + 1]
+            # Check if we have duplicate closing quote lines
+            if (
+                '"""' in current_line
+                and current_line.strip() == next_line.strip()
+                and '"""' in next_line
+            ):
+                pytest.fail(
+                    f"Found duplicate closing quote lines at lines {i} and {i + 1}: "
+                    f"{repr(current_line)} and {repr(next_line)}"
+                )

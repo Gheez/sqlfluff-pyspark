@@ -114,8 +114,18 @@ def analyze_temp_directory(
                     # - "line_pos": position on the line (sqlfluff < 4.0)
                     # - "start_line_pos"/"end_line_pos": positions (sqlfluff >= 4.0)
                     # - "description": description of the violation
-                    line_no = violation.get("line_no") or violation.get("start_line_no") or violation.get("end_line_no") or "?"
-                    line_pos = violation.get("line_pos") or violation.get("start_line_pos") or violation.get("end_line_pos") or "?"
+                    line_no = (
+                        violation.get("line_no")
+                        or violation.get("start_line_no")
+                        or violation.get("end_line_no")
+                        or "?"
+                    )
+                    line_pos = (
+                        violation.get("line_pos")
+                        or violation.get("start_line_pos")
+                        or violation.get("end_line_pos")
+                        or "?"
+                    )
                     code = violation.get("code", "UNKNOWN")
                     description = violation.get("description", "No description")
 

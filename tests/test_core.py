@@ -80,7 +80,11 @@ class TestLintSQL:
             violation = violations[0]
             assert "code" in violation
             # sqlfluff 4.0+ uses start_line_no/end_line_no instead of line_no
-            assert "start_line_no" in violation or "end_line_no" in violation or "line_no" in violation
+            assert (
+                "start_line_no" in violation
+                or "end_line_no" in violation
+                or "line_no" in violation
+            )
             assert "description" in violation
 
     def test_lint_empty_sql(self, sqlfluff_config_file):
@@ -103,7 +107,9 @@ class TestLintSQL:
                 line_no_key = "start_line_no"
             elif "end_line_no" in violation:
                 line_no_key = "end_line_no"
-            assert line_no_key is not None, f"Expected line_no, start_line_no, or end_line_no in violation: {violation.keys()}"
+            assert line_no_key is not None, (
+                f"Expected line_no, start_line_no, or end_line_no in violation: {violation.keys()}"
+            )
             assert "description" in violation
             # Check types
             assert isinstance(violation["code"], str)

@@ -161,8 +161,8 @@ def replace_sql_in_source(
             start_line_content = lines[start_line][:start_col]
             end_line_content = lines[end_line][end_col:]
             lines[start_line] = start_line_content + new_sql + end_line_content
-            # Remove lines in between
-            for i in range(start_line + 1, end_line):
+            # Remove lines in between and the end line (since its content is now in start_line)
+            for i in range(start_line + 1, end_line + 1):
                 lines[i] = ""
 
     return "".join(lines)
