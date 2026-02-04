@@ -323,12 +323,12 @@ class TestFStringSupport:
 
     def test_extract_fstring_from_spark_sql_call(self):
         """Test extracting f-string from spark.sql() call."""
-        code = '''
+        code = """
 def get_users():
     table_name = "users"
     result = spark.sql(f"SELECT id, name FROM {table_name}")
     return result
-'''
+"""
         sql_strings = extract_sql_strings(code)
         assert len(sql_strings) == 1
         assert sql_strings[0]["sql_type"] == "fstring"
@@ -336,13 +336,13 @@ def get_users():
 
     def test_extract_fstring_with_multiple_expressions(self):
         """Test extracting f-string with multiple expressions."""
-        code = '''
+        code = """
 def get_data():
     table = "users"
     condition = "active = 1"
     result = spark.sql(f"SELECT * FROM {table} WHERE {condition}")
     return result
-'''
+"""
         sql_strings = extract_sql_strings(code)
         assert len(sql_strings) == 1
         assert sql_strings[0]["sql_type"] == "fstring"
@@ -403,12 +403,12 @@ def get_data():
     def test_mixed_fstring_and_regular_strings(self, sqlfluff_config_file, tmp_path):
         """Test file with both f-strings and regular strings."""
         python_file = tmp_path / "test.py"
-        original_code = '''def get_data():
+        original_code = """def get_data():
     table = "users"
     df1 = spark.sql("SELECT * FROM table1")
     df2 = spark.sql(f"SELECT * FROM {table}")
     return df1, df2
-'''
+"""
         python_file.write_text(original_code)
 
         result = reformat_sql_in_python_file(

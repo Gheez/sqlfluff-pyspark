@@ -7,7 +7,6 @@ and replace them in the original source.
 import ast
 import io
 import logging
-import re
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Union
 from sqlfluff_pyspark.core import fix_sql
@@ -62,7 +61,7 @@ class SQLStringExtractor(ast.NodeVisitor):
     def _extract_string_from_node(self, node: ast.AST) -> Optional[Union[str, Dict]]:
         """
         Extract string value from an AST node.
-        
+
         Returns:
             - str: For regular string literals
             - Dict: For f-strings, containing structure information
@@ -86,7 +85,7 @@ class SQLStringExtractor(ast.NodeVisitor):
     def _extract_fstring_structure(self, node: ast.JoinedStr) -> Dict:
         """
         Extract structure from an f-string (JoinedStr) node.
-        
+
         Returns a dictionary with:
         - 'type': 'fstring'
         - 'parts': List of parts, each being either:
@@ -96,17 +95,19 @@ class SQLStringExtractor(ast.NodeVisitor):
         parts = []
         for value in node.values:
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                parts.append({'type': 'str', 'value': value.value})
+                parts.append({"type": "str", "value": value.value})
             elif isinstance(value, ast.Str):
-                parts.append({'type': 'str', 'value': value.s})
+                parts.append({"type": "str", "value": value.s})
             elif isinstance(value, ast.FormattedValue):
                 # This is an expression like {table_name}
                 # Store both the FormattedValue (for position info) and the expression node
-                parts.append({'type': 'expr', 'formatted_value': value, 'expr_node': value.value})
-        
+                parts.append(
+                    {"type": "expr", "formatted_value": value, "expr_node": value.value}
+                )
+
         if parts:
-            return {'type': 'fstring', 'parts': parts, 'node': node}
-        
+            return {"type": "fstring", "parts": parts, "node": node}
+
         return None
 
     def _record_sql_string(self, node: ast.AST, sql_info: Union[str, Dict]):
@@ -136,9 +137,7 @@ class SQLStringExtractor(ast.NodeVisitor):
                     "lineno": node.lineno,
                     "col_offset": node.col_offset,
                     "end_lineno": getattr(node, "end_lineno", node.lineno),
-                    "col_end_offset": getattr(
-                        node, "col_end_offset", node.col_offset
-                    ),
+                    "col_end_offset": getattr(node, "col_end_offset", node.col_offset),
                 }
             )
 
@@ -168,10 +167,10 @@ def extract_sql_strings(source_code: str) -> List[Dict[str, any]]:
 
 def _extract_expression_source(source_code: str, expr_node: ast.AST) -> str:
     """Extract the source code for an expression node from the original source.
-    
+
     For f-strings like f"SELECT * FROM {table_name}", this extracts "table_name"
     (the expression inside the braces, without the braces themselves).
-    
+
     Args:
         source_code: Original source code
         expr_node: The AST expression node (e.g., Name, Attribute, etc.)
@@ -179,9 +178,9 @@ def _extract_expression_source(source_code: str, expr_node: ast.AST) -> str:
     # Get the line and column info for the expression
     lineno = expr_node.lineno - 1  # Convert to 0-based
     end_lineno = getattr(expr_node, "end_lineno", expr_node.lineno) - 1
-    
+
     lines = source_code.splitlines(keepends=True)
-    
+
     if lineno < len(lines):
         if lineno == end_lineno:
             # Single line expression
@@ -196,7 +195,7 @@ def _extract_expression_source(source_code: str, expr_node: ast.AST) -> str:
                 if i < len(lines):
                     if i == lineno:
                         # First line - start from col_offset
-                        result.append(lines[i][expr_node.col_offset:])
+                        result.append(lines[i][expr_node.col_offset :])
                     elif i == end_lineno:
                         # Last line - end at col_end_offset
                         end_col = getattr(expr_node, "col_end_offset", len(lines[i]))
@@ -205,7 +204,7 @@ def _extract_expression_source(source_code: str, expr_node: ast.AST) -> str:
                         # Middle lines - take entire line
                         result.append(lines[i])
             return "".join(result).rstrip()
-    
+
     return ""
 
 
@@ -217,26 +216,26 @@ def _format_fstring_sql(
 ) -> Optional[str]:
     """
     Format SQL in an f-string while preserving expressions.
-    
+
     Uses placeholders to combine all SQL parts, format as one unit,
     then split back and reconstruct the f-string.
-    
+
     Args:
         fstring_info: Dictionary with 'parts' list from _extract_fstring_structure
         source_code: Original source code to extract expression strings
         config_path: Path to sqlfluff config
-        quote_style: Quote style to use ('"', "'", '"""', or "'''")
-        
+        quote_style: Quote style to use (single, double, or triple quotes)
+
     Returns:
         Formatted f-string string with quotes, or None if formatting failed
     """
     parts = fstring_info["parts"]
-    
+
     # Build SQL with unique placeholders for expressions
     expressions = []
     sql_with_placeholders = []
     placeholder_patterns = []
-    
+
     for i, part in enumerate(parts):
         if part["type"] == "str":
             sql_with_placeholders.append(part["value"])
@@ -248,31 +247,31 @@ def _format_fstring_sql(
             placeholder = f"{FSTRING_PLACEHOLDER}{i:04d}{FSTRING_PLACEHOLDER}"
             placeholder_patterns.append((placeholder, expr_source))
             sql_with_placeholders.append(placeholder)
-    
+
     # Combine and format the SQL
     combined_sql = "".join(sql_with_placeholders)
-    
+
     if not combined_sql.strip():
         return None
-    
+
     try:
         formatted_sql = fix_sql(combined_sql, config_path)
     except Exception as e:
         logger.warning(f"Failed to format f-string SQL: {e}")
         return None
-    
+
     # Replace placeholders back with expressions
     # Process in reverse order to avoid issues with overlapping patterns
     result = formatted_sql
     for placeholder, expr_source in reversed(placeholder_patterns):
         result = result.replace(placeholder, f"{{{expr_source}}}")
-    
+
     # Determine if we should use triple quotes
     use_triple_quotes = "\n" in result or len(result) > 80
-    
+
     if use_triple_quotes and quote_style in ['"', "'"]:
         quote_style = quote_style * 3
-    
+
     # Reconstruct the f-string with 'f' prefix and quotes
     return f"f{quote_style}{result}{quote_style}"
 
@@ -282,7 +281,7 @@ def _get_fstring_bounds_and_quote(
 ) -> Tuple[int, int, int, int, str]:
     """
     Get the start and end positions of an f-string in the source code, and its quote style.
-    
+
     Returns:
         (start_line, start_col, end_line, end_col, quote_style) tuple (0-based)
     """
@@ -290,44 +289,44 @@ def _get_fstring_bounds_and_quote(
     start_col = node.col_offset
     end_line = getattr(node, "end_lineno", node.lineno) - 1
     end_col = getattr(node, "col_end_offset", node.col_offset)
-    
+
     lines = source_code.splitlines(keepends=True)
-    
+
     # Find the actual f-string bounds including the 'f' prefix and quotes
     # Look backwards from start_col to find 'f' and quote
     if start_line < len(lines):
         line = lines[start_line]
-        
+
         # Look for 'f' prefix (could be before start_col)
         f_pos = start_col
         while f_pos > 0 and line[f_pos - 1] in "fF":
             f_pos -= 1
-        
+
         # Look for quote style
-        quote_chars = ['"""', "'''", '"', "'"]
+        quote_chars = ['"""', "'''", '"', "'"]  # noqa: E501
         quote_style = None
         quote_start = None
-        
+
         # Check if there's an 'f' prefix
         has_f_prefix = f_pos < start_col and line[f_pos] in "fF"
         search_start = f_pos + (1 if has_f_prefix else 0)
-        
+
         for quote in quote_chars:
             if search_start + len(quote) <= len(line):
                 if line[search_start : search_start + len(quote)] == quote:
                     quote_style = quote
                     quote_start = search_start
                     break
-        
+
         if quote_style:
             # Find closing quote
             search_start = quote_start + len(quote_style)
-            
+
             if quote_style in ['"""', "'''"]:
                 # Multi-line string
                 current_line = start_line
                 search_pos = search_start if current_line == start_line else 0
-                
+
                 while current_line < len(lines):
                     line_text = lines[current_line]
                     pos = line_text.find(quote_style, search_pos)
@@ -342,7 +341,7 @@ def _get_fstring_bounds_and_quote(
                 if pos != -1:
                     quote_end = pos + len(quote_style)
                     return (start_line, f_pos, start_line, quote_end, quote_style)
-    
+
     # Fallback to AST positions with default quote style
     return (start_line, start_col, end_line, end_col, '"')
 
@@ -441,23 +440,23 @@ def reformat_sql_in_python_file(
 
     for sql_info in sql_strings:
         sql_type = sql_info.get("sql_type", "string")
-        
+
         try:
             if sql_type == "fstring":
                 # Handle f-string formatting
                 fstring_info = sql_info["sql"]
                 node = sql_info["node"]
-                
+
                 # Get the bounds and quote style of the f-string in source
-                start_line, start_col, end_line, end_col, quote_style = _get_fstring_bounds_and_quote(
-                    source_code, node
+                start_line, start_col, end_line, end_col, quote_style = (
+                    _get_fstring_bounds_and_quote(source_code, node)
                 )
-                
+
                 # Format the f-string SQL
                 formatted_fstring = _format_fstring_sql(
                     fstring_info, source_code, config_path, quote_style
                 )
-                
+
                 if formatted_fstring is not None:
                     # Extract the original f-string to compare
                     lines = source_code.splitlines(keepends=True)
@@ -476,11 +475,17 @@ def reformat_sql_in_python_file(
                                 else:
                                     original_fstring += lines[i]
                         original_fstring = original_fstring.rstrip()
-                    
+
                     # Only replace if it changed
                     if formatted_fstring.strip() != original_fstring.strip():
                         replacements.append(
-                            (start_line, start_col, end_line, end_col, formatted_fstring)
+                            (
+                                start_line,
+                                start_col,
+                                end_line,
+                                end_col,
+                                formatted_fstring,
+                            )
                         )
                         reformatted_count += 1
                         logger.info(
@@ -489,7 +494,7 @@ def reformat_sql_in_python_file(
             else:
                 # Handle regular string literal
                 original_sql = sql_info["sql"]
-                
+
                 # Use StringIO as a "partial file" to hold the SQL string
                 sql_buffer = io.StringIO(original_sql)
                 sql_content = sql_buffer.read()
@@ -511,7 +516,12 @@ def reformat_sql_in_python_file(
                         line = lines[start_line]
 
                         # Find the quote style and full string literal
-                        quote_chars = ['"""', "'''", '"', "'"]  # Check triple quotes first
+                        quote_chars = [
+                            '"""',
+                            "'''",
+                            '"',
+                            "'",
+                        ]  # Check triple quotes first
                         quote_style = None
                         quote_start = None
 
@@ -555,7 +565,9 @@ def reformat_sql_in_python_file(
 
                             if quote_end is not None:
                                 # Determine if we should use triple quotes for the fixed SQL
-                                use_triple_quotes = "\n" in fixed_sql or len(fixed_sql) > 80
+                                use_triple_quotes = (
+                                    "\n" in fixed_sql or len(fixed_sql) > 80
+                                )
 
                                 if use_triple_quotes and quote_style in ['"', "'"]:
                                     # Switch to triple quotes
