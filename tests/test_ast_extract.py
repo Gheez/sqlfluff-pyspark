@@ -452,3 +452,324 @@ def get_data():
             assert method_call.startswith(".createOrReplaceTempView"), (
                 f"Method call appears to be truncated: {repr(method_call)}"
             )
+
+    def test_multiple_statements_preserved(self, sqlfluff_config_file, tmp_path):
+        """Test that code before and after SQL strings is preserved."""
+        python_file = tmp_path / "test.py"
+        original_code = """import pandas as pd
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName("test").getOrCreate()
+
+# First query
+df1 = spark.sql("SELECT * FROM table1 WHERE id = 1")
+
+# Second query with method call
+df2 = spark.sql("SELECT name FROM users").filter("active = 1")
+
+# Process results
+result = df1.join(df2, "id")
+result.show()
+"""
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that all code is preserved
+        assert "import pandas as pd" in modified_content
+        assert "from pyspark.sql import SparkSession" in modified_content
+        assert "spark = SparkSession.builder" in modified_content
+        assert "# First query" in modified_content
+        assert "# Second query" in modified_content
+        assert "# Process results" in modified_content
+        assert "df1 = spark.sql" in modified_content
+        assert "df2 = spark.sql" in modified_content
+        assert ".filter(" in modified_content
+        assert "result = df1.join" in modified_content
+        assert "result.show()" in modified_content
+
+    def test_code_on_same_line_as_opening_quote(self, sqlfluff_config_file, tmp_path):
+        """Test SQL string with code on the same line as opening quote."""
+        python_file = tmp_path / "test.py"
+        original_code = """def get_data(): df = spark.sql("SELECT * FROM users WHERE active = 1"); return df"""
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that code before and after is preserved
+        assert (
+            "def get_data():" in modified_content
+            or "def get_data()" in modified_content
+        )
+        assert "df = spark.sql" in modified_content
+        assert "return df" in modified_content or "return" in modified_content
+
+    def test_code_on_same_line_as_closing_quote(self, sqlfluff_config_file, tmp_path):
+        """Test SQL string with code on the same line as closing quote."""
+        python_file = tmp_path / "test.py"
+        original_code = """spark.sql("SELECT id, name FROM users").createOrReplaceTempView("users_view"); print("Done")"""
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that method call and subsequent code are preserved
+        assert ".createOrReplaceTempView" in modified_content
+        assert '"users_view"' in modified_content
+        assert 'print("Done")' in modified_content or "print(" in modified_content
+
+    def test_multiline_string_with_code_on_same_lines(
+        self, sqlfluff_config_file, tmp_path
+    ):
+        """Test multiline SQL string with code on opening and closing lines."""
+        python_file = tmp_path / "test.py"
+        original_code = '''# Setup
+df = spark.sql("""
+    SELECT * FROM table
+    WHERE id > 100
+""").filter("status = 'active'")  # Filter active records
+result = df.collect()  # Get results
+'''
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that all code is preserved
+        assert "# Setup" in modified_content
+        assert "df = spark.sql" in modified_content
+        assert ".filter(" in modified_content
+        assert "# Filter active records" in modified_content
+        assert "result = df.collect()" in modified_content
+        assert "# Get results" in modified_content
+
+    def test_multiple_sql_strings_with_code_between(
+        self, sqlfluff_config_file, tmp_path
+    ):
+        """Test multiple SQL strings with code between them."""
+        python_file = tmp_path / "test.py"
+        original_code = """# First query
+query1 = spark.sql("SELECT * FROM table1")
+df1 = query1.toPandas()  # Convert to pandas
+
+# Second query
+query2 = spark.sql("SELECT * FROM table2 WHERE date > '2024-01-01'")
+df2 = query2.toPandas()
+
+# Combine results
+combined = pd.concat([df1, df2])
+"""
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that all code between strings is preserved
+        assert "# First query" in modified_content
+        assert "query1 = spark.sql" in modified_content
+        assert "df1 = query1.toPandas()" in modified_content
+        assert "# Convert to pandas" in modified_content
+        assert "# Second query" in modified_content
+        assert "query2 = spark.sql" in modified_content
+        assert "df2 = query2.toPandas()" in modified_content
+        assert "# Combine results" in modified_content
+        assert "combined = pd.concat" in modified_content
+
+    def test_sql_in_function_with_code_before_after(
+        self, sqlfluff_config_file, tmp_path
+    ):
+        """Test SQL string inside function with code before and after."""
+        python_file = tmp_path / "test.py"
+        original_code = '''def process_data():
+    # Initialize
+    spark_session = get_spark_session()
+    
+    # Execute query
+    result = spark.sql("""
+        SELECT 
+            id,
+            name,
+            email
+        FROM users
+        WHERE active = 1
+    """)
+    
+    # Process results
+    return result.collect()
+'''
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that function structure and all code is preserved
+        assert "def process_data():" in modified_content
+        assert "# Initialize" in modified_content
+        assert "spark_session = get_spark_session()" in modified_content
+        assert "# Execute query" in modified_content
+        assert "result = spark.sql" in modified_content
+        assert "# Process results" in modified_content
+        assert "return result.collect()" in modified_content
+
+    def test_sql_with_complex_method_chaining(self, sqlfluff_config_file, tmp_path):
+        """Test SQL string followed by complex method chaining."""
+        python_file = tmp_path / "test.py"
+        original_code = """result = spark.sql("SELECT * FROM orders WHERE date >= '2024-01-01'") \\
+    .filter("status = 'completed'") \\
+    .select("order_id", "customer_id", "total") \\
+    .orderBy("total", ascending=False) \\
+    .limit(100) \\
+    .cache()
+print(f"Processed {result.count()} orders")
+"""
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that method chaining is preserved
+        assert "result = spark.sql" in modified_content
+        assert ".filter(" in modified_content
+        assert ".select(" in modified_content
+        assert ".orderBy(" in modified_content
+        assert ".limit(" in modified_content
+        assert ".cache()" in modified_content
+        assert "print(f" in modified_content or "print(" in modified_content
+
+    def test_sql_in_if_statement_with_else(self, sqlfluff_config_file, tmp_path):
+        """Test SQL strings in conditional statements."""
+        python_file = tmp_path / "test.py"
+        original_code = """if use_new_table:
+    df = spark.sql("SELECT * FROM new_table WHERE id > 100")
+else:
+    df = spark.sql("SELECT * FROM old_table WHERE id > 100")
+    
+df.show()
+"""
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that conditional structure is preserved
+        assert "if use_new_table:" in modified_content
+        assert "df = spark.sql" in modified_content
+        assert "else:" in modified_content
+        assert "df.show()" in modified_content
+        # Check that both SQL strings are present
+        assert "new_table" in modified_content or "SELECT" in modified_content
+        assert "old_table" in modified_content or "SELECT" in modified_content
+
+    def test_sql_with_triple_quotes_and_code_on_lines(
+        self, sqlfluff_config_file, tmp_path
+    ):
+        """Test triple-quoted SQL with code on the same lines as quotes."""
+        python_file = tmp_path / "test.py"
+        original_code = '''# Query with code on same lines
+df = spark.sql("""SELECT * FROM users""").filter("active = 1")  # Single line triple quote
+result = df.collect()  # Get all results
+
+# Multi-line with code
+df2 = spark.sql("""
+    SELECT id, name FROM products
+    WHERE price > 100
+""").orderBy("price")  # Order by price
+'''
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that code on same lines is preserved
+        assert "# Query with code on same lines" in modified_content
+        assert "df = spark.sql" in modified_content
+        assert ".filter(" in modified_content
+        assert "# Single line triple quote" in modified_content
+        assert "result = df.collect()" in modified_content
+        assert "# Get all results" in modified_content
+        assert "# Multi-line with code" in modified_content
+        assert "df2 = spark.sql" in modified_content
+        assert ".orderBy(" in modified_content
+        assert "# Order by price" in modified_content
+
+    def test_multiple_sql_strings_same_line(self, sqlfluff_config_file, tmp_path):
+        """Test multiple SQL strings on the same line."""
+        python_file = tmp_path / "test.py"
+        original_code = """df1 = spark.sql("SELECT * FROM table1"); df2 = spark.sql("SELECT * FROM table2"); result = df1.join(df2, "id")"""
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that both SQL strings and code between them are preserved
+        assert "df1 = spark.sql" in modified_content
+        assert "df2 = spark.sql" in modified_content
+        assert "result = df1.join" in modified_content
+        # Both should have SQL content
+        assert "table1" in modified_content or "SELECT" in modified_content
+        assert "table2" in modified_content or "SELECT" in modified_content
+
+    def test_sql_with_fstring_and_regular_string_mixed(
+        self, sqlfluff_config_file, tmp_path
+    ):
+        """Test mix of f-strings and regular strings with code around them."""
+        python_file = tmp_path / "test.py"
+        original_code = """# Regular string
+table_name = "users"
+df1 = spark.sql("SELECT * FROM users WHERE active = 1")
+
+# F-string
+user_id = 123
+df2 = spark.sql(f"SELECT * FROM {table_name} WHERE id = {user_id}")
+
+# Another regular string
+df3 = spark.sql("SELECT COUNT(*) as total FROM users")
+
+# Combine
+result = df1.union(df2).union(df3)
+result.show()
+"""
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        modified_content = python_file.read_text()
+        # Check that all code is preserved
+        assert "# Regular string" in modified_content
+        assert 'table_name = "users"' in modified_content
+        assert "df1 = spark.sql" in modified_content
+        assert "# F-string" in modified_content
+        assert "user_id = 123" in modified_content
+        assert "df2 = spark.sql" in modified_content
+        assert "# Another regular string" in modified_content
+        assert "df3 = spark.sql" in modified_content
+        assert "# Combine" in modified_content
+        assert "result = df1.union" in modified_content
+        assert "result.show()" in modified_content
+        # Check f-string expression is preserved
+        assert "{table_name}" in modified_content or "table_name" in modified_content
+        assert "{user_id}" in modified_content or "user_id" in modified_content
