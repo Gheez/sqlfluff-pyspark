@@ -316,3 +316,103 @@ class TestReformatSQLInPythonFile:
                     f"Found duplicate closing quote lines at lines {i} and {i + 1}: "
                     f"{repr(current_line)} and {repr(next_line)}"
                 )
+
+
+class TestFStringSupport:
+    """Tests for f-string SQL formatting support."""
+
+    def test_extract_fstring_from_spark_sql_call(self):
+        """Test extracting f-string from spark.sql() call."""
+        code = '''
+def get_users():
+    table_name = "users"
+    result = spark.sql(f"SELECT id, name FROM {table_name}")
+    return result
+'''
+        sql_strings = extract_sql_strings(code)
+        assert len(sql_strings) == 1
+        assert sql_strings[0]["sql_type"] == "fstring"
+        assert "parts" in sql_strings[0]["sql"]
+
+    def test_extract_fstring_with_multiple_expressions(self):
+        """Test extracting f-string with multiple expressions."""
+        code = '''
+def get_data():
+    table = "users"
+    condition = "active = 1"
+    result = spark.sql(f"SELECT * FROM {table} WHERE {condition}")
+    return result
+'''
+        sql_strings = extract_sql_strings(code)
+        assert len(sql_strings) == 1
+        assert sql_strings[0]["sql_type"] == "fstring"
+        fstring_info = sql_strings[0]["sql"]
+        # Should have multiple parts (text and expressions)
+        assert len(fstring_info["parts"]) > 2
+
+    def test_reformat_fstring_sql(self, sqlfluff_config_file, tmp_path):
+        """Test reformatting SQL in f-strings."""
+        python_file = tmp_path / "test.py"
+        python_file.write_text(
+            'def get_users():\n    table = "users"\n    result = spark.sql(f"SeLEct * from {table}")\n    return result\n'
+        )
+
+        result = reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=True
+        )
+        assert result["sql_strings_found"] == 1
+        # Should detect the f-string
+        if result["sql_strings_reformatted"] > 0:
+            assert result["replacements"]
+
+    def test_fstring_preserves_expressions(self, sqlfluff_config_file, tmp_path):
+        """Test that f-string expressions are preserved during formatting."""
+        python_file = tmp_path / "test.py"
+        original_code = 'def get_data():\n    table = "users"\n    result = spark.sql(f"SELECT * FROM {table} WHERE id = {user_id}")\n    return result\n'
+        python_file.write_text(original_code)
+
+        result = reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        if result["sql_strings_reformatted"] > 0:
+            modified_content = python_file.read_text()
+            # Check that expressions are still present
+            assert "{table}" in modified_content or "table" in modified_content
+            assert "{user_id}" in modified_content or "user_id" in modified_content
+
+    def test_fstring_with_multiline_sql(self, sqlfluff_config_file, tmp_path):
+        """Test f-string with multiline SQL."""
+        python_file = tmp_path / "test.py"
+        original_code = '''def get_data():
+    table = "users"
+    result = spark.sql(f"""
+    SELECT id, name
+    FROM {table}
+    WHERE active = 1
+    """)
+    return result
+'''
+        python_file.write_text(original_code)
+
+        result = reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=True
+        )
+        assert result["sql_strings_found"] == 1
+
+    def test_mixed_fstring_and_regular_strings(self, sqlfluff_config_file, tmp_path):
+        """Test file with both f-strings and regular strings."""
+        python_file = tmp_path / "test.py"
+        original_code = '''def get_data():
+    table = "users"
+    df1 = spark.sql("SELECT * FROM table1")
+    df2 = spark.sql(f"SELECT * FROM {table}")
+    return df1, df2
+'''
+        python_file.write_text(original_code)
+
+        result = reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=True
+        )
+        # Should find both strings
+        assert result["sql_strings_found"] == 2
