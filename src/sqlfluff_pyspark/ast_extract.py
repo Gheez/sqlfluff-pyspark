@@ -535,52 +535,78 @@ def reformat_sql_in_python_file(
                                     break
 
                         if quote_style:
-                            # Use AST end position directly - it's more reliable than searching
-                            # The col_end_offset points to the position AFTER the closing quote
-                            quote_end = end_col
+                            # Find the closing quote position
+                            # If AST provides col_end_offset, use it (but verify it's correct)
+                            # Otherwise, search for the closing quote
+                            quote_end = None
 
-                            # Verify the end position is within bounds
-                            if end_line >= len(lines):
-                                logger.warning(
-                                    f"End line {end_line} exceeds file length at line {sql_info['lineno']}"
-                                )
-                                continue
+                            # Check if we have a valid AST end position
+                            if end_col is not None and end_line < len(lines):
+                                end_line_content = lines[end_line]
+                                # Verify the AST position has the closing quote
+                                if end_col >= len(quote_style) and end_col <= len(
+                                    end_line_content
+                                ):
+                                    actual_end_quote = end_line_content[
+                                        end_col - len(quote_style) : end_col
+                                    ]
+                                    if actual_end_quote == quote_style:
+                                        # AST position is correct
+                                        quote_end = end_col
 
-                            end_line_content = lines[end_line]
-                            line_content_length = len(end_line_content.rstrip("\n\r"))
+                            # If AST position is not available or incorrect, search for the quote
+                            if quote_end is None:
+                                search_start = quote_start + len(quote_style)
 
-                            # Verify we have the closing quote at the expected position
-                            if quote_end >= len(quote_style) and quote_end <= len(
-                                end_line_content
-                            ):
-                                actual_end_quote = end_line_content[
-                                    quote_end - len(quote_style) : quote_end
-                                ]
-                                if actual_end_quote != quote_style:
-                                    # AST position might be slightly off, try to find the quote nearby
-                                    # Search backwards from end_col to find the quote, but only within reasonable range
-                                    search_start = max(
-                                        0, quote_end - 50
-                                    )  # Search up to 50 chars back
-                                    pos = end_line_content.rfind(
-                                        quote_style,
-                                        search_start,
-                                        min(quote_end + 1, len(end_line_content)),
+                                if quote_style in ['"""', "'''"]:
+                                    # Multi-line string: search from start_line to end_line
+                                    current_line = start_line
+                                    search_pos = (
+                                        search_start
+                                        if current_line == start_line
+                                        else 0
+                                    )
+
+                                    # Limit search to end_line to avoid finding wrong quotes
+                                    while (
+                                        current_line <= end_line
+                                        and current_line < len(lines)
+                                    ):
+                                        line_text = lines[current_line]
+                                        # On the end_line, only search up to a reasonable limit
+                                        # to avoid going past the actual string
+                                        search_limit = len(line_text)
+                                        if (
+                                            current_line == end_line
+                                            and end_col is not None
+                                        ):
+                                            # If we have an AST end hint, search only up to that + some margin
+                                            search_limit = min(
+                                                end_col + 20, len(line_text)
+                                            )
+
+                                        pos = line_text.find(
+                                            quote_style, search_pos, search_limit
+                                        )
+                                        if pos != -1:
+                                            quote_end = pos + len(quote_style)
+                                            end_line = current_line
+                                            break
+                                        current_line += 1
+                                        search_pos = 0
+                                else:
+                                    # Single-line string: search on the same line
+                                    # Limit search to avoid finding quotes from other strings
+                                    search_limit = len(line)
+                                    if end_col is not None:
+                                        # Use AST hint if available
+                                        search_limit = min(end_col + 20, len(line))
+                                    pos = line.find(
+                                        quote_style, search_start, search_limit
                                     )
                                     if pos != -1:
                                         quote_end = pos + len(quote_style)
-                                    else:
-                                        logger.warning(
-                                            f"Could not verify closing quote at expected position for SQL at line {sql_info['lineno']}. "
-                                            f"Expected at {quote_end - len(quote_style)}-{quote_end}, got: {repr(end_line_content[max(0, quote_end - 10) : min(quote_end + 10, len(end_line_content))])}"
-                                        )
-                                        continue
-                            elif quote_end > line_content_length:
-                                # If end_col exceeds the line content, cap it to the line end
-                                quote_end = line_content_length
-                                logger.warning(
-                                    f"AST end position {end_col} exceeds line length {line_content_length} at line {sql_info['lineno']}, capping to line end"
-                                )
+                                        end_line = start_line
 
                             if quote_end is not None:
                                 # Determine if we should use triple quotes for the fixed SQL
