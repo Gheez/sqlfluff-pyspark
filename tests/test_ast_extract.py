@@ -416,3 +416,39 @@ def get_data():
         )
         # Should find both strings
         assert result["sql_strings_found"] == 2
+
+    def test_sql_followed_by_method_call(self, sqlfluff_config_file, tmp_path):
+        """Test that SQL string followed by method call is not corrupted."""
+        python_file = tmp_path / "test.py"
+        original_code = '''spark.sql("""
+    SELECT distinct  
+        '{V_COMPANY_CODE_CARSTORE_AS}'      AS COMPANY_CODE
+        ,IFNULL(b.GL_ACCOUNT_NO_MAP,a.No_)  AS ACCOUNT_NUMBER
+        ,a.Name                             AS ACCOUNT_NAME
+    FROM
+        HEDIN_HAAS.EXTR_CARSTORE_AS_G_L_ACCOUNT a
+        LEFT JOIN hedin_automotive_carstore_as_g_l_entry b on a.No_ = b.GL_ACCOUNT_NO_ORG
+
+ """).createOrReplaceTempView("Carstore_AS_GLA")'''
+        python_file.write_text(original_code)
+
+        reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=False
+        )
+
+        # Check that the method call is preserved
+        modified_content = python_file.read_text()
+        assert ".createOrReplaceTempView" in modified_content, (
+            "Method call should be preserved after SQL formatting"
+        )
+        assert '"Carstore_AS_GLA"' in modified_content, (
+            "Method call argument should be preserved"
+        )
+
+        # Verify the method call is complete (not truncated)
+        if ".createOrReplaceTempView" in modified_content:
+            idx = modified_content.find(".createOrReplaceTempView")
+            method_call = modified_content[idx : idx + 50]
+            assert method_call.startswith(".createOrReplaceTempView"), (
+                f"Method call appears to be truncated: {repr(method_call)}"
+            )
