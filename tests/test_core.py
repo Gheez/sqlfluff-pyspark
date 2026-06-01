@@ -120,9 +120,13 @@ class TestErrorHandling:
     """Tests for error handling."""
 
     def test_invalid_config_file(self, tmp_path):
-        """Test handling of invalid config file."""
-        invalid_config = tmp_path / "invalid_config"
-        invalid_config.write_text("invalid config content")
+        """Test handling of a config file that fails to load.
+
+        sqlfluff discovers config from a ``.sqlfluff`` file, so an invalid
+        value (here an unknown dialect) is what actually makes loading raise.
+        """
+        invalid_config = tmp_path / ".sqlfluff"
+        invalid_config.write_text("[sqlfluff]\ndialect = totally_not_a_dialect\n")
 
         # The function should raise ValueError when config can't be loaded
         with pytest.raises(ValueError, match="Failed to load configuration"):

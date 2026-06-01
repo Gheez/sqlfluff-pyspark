@@ -1,5 +1,6 @@
 """Tests for AST-based SQL extraction and replacement."""
 
+import ast
 import importlib.util
 from pathlib import Path
 
@@ -399,9 +400,12 @@ def get_data():
 
         if result["sql_strings_reformatted"] > 0:
             modified_content = python_file.read_text()
-            # Check that expressions are still present
-            assert "{table}" in modified_content or "table" in modified_content
-            assert "{user_id}" in modified_content or "user_id" in modified_content
+            # Expressions must be preserved in their braced form, and the
+            # output must remain valid Python (guards the {} regression).
+            ast.parse(modified_content)
+            assert "{table}" in modified_content
+            assert "{user_id}" in modified_content
+            assert "{}" not in modified_content
 
     def test_fstring_with_multiline_sql(self, sqlfluff_config_file, tmp_path):
         """Test f-string with multiline SQL."""
@@ -706,3 +710,78 @@ def get_data():
             assert any(
                 expr in modified_content for expr in expected.FSTRING_EXPRESSIONS
             ), f"None of the f-string expressions found: {expected.FSTRING_EXPRESSIONS}"
+
+
+class TestFStringRegression:
+    """Regression guards for f-string formatting bugs.
+
+    These pin down the bug where triple-quoted/inline f-strings passed to
+    spark.sql() were mangled: expressions like {VARIABLE} collapsed to {} and
+    closing quotes fused into the next statement.
+    """
+
+    def _reformat(self, code, sqlfluff_config_file, tmp_path):
+        python_file = tmp_path / "test.py"
+        python_file.write_text(code)
+        result = reformat_sql_in_python_file(
+            str(python_file), sqlfluff_config_file, dry_run=True
+        )
+        modified = result["modified_source"]
+        # The strongest single regression guard: output must be valid Python.
+        ast.parse(modified)
+        return modified
+
+    def test_triple_quoted_fstring_preserves_expression(
+        self, sqlfluff_config_file, tmp_path
+    ):
+        code = 'df = spark.sql(f"""\n    SELECT {VARIABLE} FROM table\n""")\n'
+        modified = self._reformat(code, sqlfluff_config_file, tmp_path)
+
+        assert "{VARIABLE}" in modified, (
+            f"f-string expression was lost; got:\n{modified}"
+        )
+        assert "{}" not in modified, (
+            f"f-string expression collapsed to empty braces; got:\n{modified}"
+        )
+
+    def test_inline_fstring_preserves_multiple_expressions(
+        self, sqlfluff_config_file, tmp_path
+    ):
+        code = 'df = spark.sql(f"select {x} from t where a = {b}")\n'
+        modified = self._reformat(code, sqlfluff_config_file, tmp_path)
+
+        assert "{x}" in modified, f"Expression {{x}} lost; got:\n{modified}"
+        assert "{b}" in modified, f"Expression {{b}} lost; got:\n{modified}"
+        assert "{}" not in modified, (
+            f"f-string expression collapsed to empty braces; got:\n{modified}"
+        )
+
+    def test_fstring_closing_quote_not_fused_into_next_statement(
+        self, sqlfluff_config_file, tmp_path
+    ):
+        code = (
+            'df = spark.sql(f"""\n    SELECT {VARIABLE} FROM table\n""")\n'
+            'df2 = spark.sql(f"select {x} from t")\n'
+        )
+        modified = self._reformat(code, sqlfluff_config_file, tmp_path)
+
+        # Both assignments must survive as distinct statements.
+        tree = ast.parse(modified)
+        assigned = {
+            t.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            for t in node.targets
+            if isinstance(t, ast.Name)
+        }
+        assert {"df", "df2"} <= assigned, (
+            f"A statement was lost or fused; got:\n{modified}"
+        )
+
+    def test_fstring_reformat_is_idempotent(self, sqlfluff_config_file, tmp_path):
+        code = 'df = spark.sql(f"""\n    SELECT {VARIABLE} FROM table\n""")\n'
+        first = self._reformat(code, sqlfluff_config_file, tmp_path)
+        second = self._reformat(first, sqlfluff_config_file, tmp_path)
+        assert first == second, (
+            f"Reformatting is not idempotent.\nfirst:\n{first}\nsecond:\n{second}"
+        )

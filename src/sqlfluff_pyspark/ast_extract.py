@@ -67,14 +67,10 @@ class SQLStringExtractor(ast.NodeVisitor):
             - Dict: For f-strings, containing structure information
             - None: If not a string node
         """
-        # Handle Python 3.8+ Constant nodes
+        # String literals are Constant nodes on all supported Python versions.
         if isinstance(node, ast.Constant):
             if isinstance(node.value, str):
                 return node.value
-
-        # Handle Python <3.8 Str nodes
-        if isinstance(node, ast.Str):
-            return node.s
 
         # Handle JoinedStr (f-strings) - extract structure with expressions
         if isinstance(node, ast.JoinedStr):
@@ -96,8 +92,6 @@ class SQLStringExtractor(ast.NodeVisitor):
         for value in node.values:
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
                 parts.append({"type": "str", "value": value.value})
-            elif isinstance(value, ast.Str):
-                parts.append({"type": "str", "value": value.s})
             elif isinstance(value, ast.FormattedValue):
                 # This is an expression like {table_name}
                 # Store both the FormattedValue (for position info) and the expression node
@@ -123,7 +117,7 @@ class SQLStringExtractor(ast.NodeVisitor):
                     "col_offset": node.col_offset,
                     "end_lineno": getattr(node, "end_lineno", node.lineno),
                     "col_end_offset": getattr(
-                        node, "col_end_offset", node.col_offset + len(sql_info)
+                        node, "end_col_offset", node.col_offset + len(sql_info)
                     ),
                 }
             )
@@ -137,7 +131,7 @@ class SQLStringExtractor(ast.NodeVisitor):
                     "lineno": node.lineno,
                     "col_offset": node.col_offset,
                     "end_lineno": getattr(node, "end_lineno", node.lineno),
-                    "col_end_offset": getattr(node, "col_end_offset", node.col_offset),
+                    "col_end_offset": getattr(node, "end_col_offset", node.col_offset),
                 }
             )
 
@@ -186,7 +180,7 @@ def _extract_expression_source(source_code: str, expr_node: ast.AST) -> str:
             # Single line expression
             line = lines[lineno]
             start_col = expr_node.col_offset
-            end_col = getattr(expr_node, "col_end_offset", expr_node.col_offset)
+            end_col = getattr(expr_node, "end_col_offset", expr_node.col_offset)
             return line[start_col:end_col].rstrip()
         else:
             # Multi-line expression
@@ -197,8 +191,8 @@ def _extract_expression_source(source_code: str, expr_node: ast.AST) -> str:
                         # First line - start from col_offset
                         result.append(lines[i][expr_node.col_offset :])
                     elif i == end_lineno:
-                        # Last line - end at col_end_offset
-                        end_col = getattr(expr_node, "col_end_offset", len(lines[i]))
+                        # Last line - end at end_col_offset
+                        end_col = getattr(expr_node, "end_col_offset", len(lines[i]))
                         result.append(lines[i][:end_col])
                     else:
                         # Middle lines - take entire line
@@ -288,28 +282,28 @@ def _get_fstring_bounds_and_quote(
     start_line = node.lineno - 1
     start_col = node.col_offset
     end_line = getattr(node, "end_lineno", node.lineno) - 1
-    end_col = getattr(node, "col_end_offset", node.col_offset)
+    end_col = getattr(node, "end_col_offset", node.col_offset)
 
     lines = source_code.splitlines(keepends=True)
 
-    # Find the actual f-string bounds including the 'f' prefix and quotes
-    # Look backwards from start_col to find 'f' and quote
+    # Find the actual f-string bounds including the string prefix and quotes.
+    # Modern CPython points col_offset directly at the literal start (the
+    # prefix, e.g. the 'f' of f"""...), so scan forward over any string
+    # prefix characters to reach the opening quote.
     if start_line < len(lines):
         line = lines[start_line]
 
-        # Look for 'f' prefix (could be before start_col)
+        # The literal (including its prefix) begins at col_offset.
         f_pos = start_col
-        while f_pos > 0 and line[f_pos - 1] in "fF":
-            f_pos -= 1
+        prefix_end = start_col
+        while prefix_end < len(line) and line[prefix_end] in "fFrRbBuU":
+            prefix_end += 1
+        search_start = prefix_end
 
         # Look for quote style
         quote_chars = ['"""', "'''", '"', "'"]  # noqa: E501
         quote_style = None
         quote_start = None
-
-        # Check if there's an 'f' prefix
-        has_f_prefix = f_pos < start_col and line[f_pos] in "fF"
-        search_start = f_pos + (1 if has_f_prefix else 0)
 
         for quote in quote_chars:
             if search_start + len(quote) <= len(line):
